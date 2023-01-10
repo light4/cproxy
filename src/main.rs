@@ -43,13 +43,10 @@ fn main() -> anyhow::Result<()> {
     );
     let args: Cli = Cli::from_args();
 
-    match args.pid {
-        None => {
-            proxy::proxy_new_command(&args)?;
-        }
-        Some(existing_pid) => {
-            proxy::proxy_existing_pid(existing_pid, &args)?;
-        }
+    if let Some(pid) = args.pid {
+        proxy::proxy_existing_pid(pid, &args)?;
+    } else {
+        proxy::proxy_new_command(&args)?;
     }
 
     Ok(())
