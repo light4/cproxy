@@ -1,4 +1,5 @@
 use std::{
+    os::unix::process::CommandExt,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -59,16 +60,23 @@ pub fn proxy_new_command(args: &Cli) -> anyhow::Result<()> {
         }
     };
 
-    let original_uid = nix::unistd::getuid();
-    let original_gid = nix::unistd::getgid();
-    nix::unistd::seteuid(original_uid)?;
-    nix::unistd::setegid(original_gid)?;
+    let (uid, gid) = {
+        if let Ok(sudo_uid) = std::env::var("SUDO_UID") {
+            let s_uid = sudo_uid.parse::<u32>().unwrap();
+            let s_gid = std::env::var("SUDO_GID").unwrap().parse::<u32>().unwrap();
+            (s_uid, s_gid)
+        } else {
+            let o_uid = nix::unistd::getuid().as_raw();
+            let o_gid = nix::unistd::getgid().as_raw();
+            (o_uid, o_gid)
+        }
+    };
     let mut child = std::process::Command::new(&child_command[0])
         .env("CPROXY_ENV", format!("cproxy/{port}"))
+        .uid(uid)
+        .gid(gid)
         .args(&child_command[1..])
         .spawn()?;
-    nix::unistd::seteuid(nix::unistd::Uid::from_raw(0))?;
-    nix::unistd::setegid(nix::unistd::Gid::from_raw(0))?;
 
     ctrlc::set_handler(move || {
         println!("received ctrl-c, terminating...");

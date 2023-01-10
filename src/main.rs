@@ -36,12 +36,6 @@ fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_env("LOG_LEVEL"))
         .init();
-    nix::unistd::seteuid(nix::unistd::Uid::from_raw(0)).expect(
-        "cproxy failed to seteuid, please `chown root:root` and `chmod +s` on cproxy binary",
-    );
-    nix::unistd::setegid(nix::unistd::Gid::from_raw(0)).expect(
-        "cproxy failed to seteuid, please `chown root:root` and `chmod +s` on cproxy binary",
-    );
     let args: Cli = Cli::parse();
 
     if let Some(pid) = args.pid {
