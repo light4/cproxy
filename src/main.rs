@@ -1,10 +1,14 @@
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
-
-use structopt::StructOpt;
+use std::{
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 
 use guards::{CGroupGuard, RedirectGuard, TProxyGuard};
+use structopt::StructOpt;
+
 use crate::guards::TraceGuard;
 
 mod guards;
@@ -17,7 +21,8 @@ struct Cli {
     /// redirect DNS traffic. This option only works with redirect mode
     #[structopt(long)]
     redirect_dns: bool,
-    /// Proxy mode can be `trace` (use iptables TRACE target to debug program network), `tproxy`, or `redirect`.
+    /// Proxy mode can be `trace` (use iptables TRACE target to debug program network), `tproxy`,
+    /// or `redirect`.
     #[structopt(long, default_value = "redirect")]
     mode: String,
     /// Override dns server address. This option only works with tproxy mode
@@ -50,21 +55,25 @@ fn proxy_new_command(args: &Cli) -> anyhow::Result<()> {
     let _guard: Box<dyn Drop> = match args.mode.as_str() {
         "redirect" => {
             let output_chain_name = format!("nozomi_redirect_out_{}", pid);
-            Box::new(RedirectGuard::new(port, output_chain_name.as_str(), cgroup_guard, args.redirect_dns)?) }
+            Box::new(RedirectGuard::new(
+                port,
+                output_chain_name.as_str(),
+                cgroup_guard,
+                args.redirect_dns,
+            )?)
+        }
         "tproxy" => {
             let output_chain_name = format!("nozomi_tproxy_out_{}", pid);
             let prerouting_chain_name = format!("nozomi_tproxy_pre_{}", pid);
             let mark = pid;
-            Box::new(
-                TProxyGuard::new(
-                    port,
-                    mark,
-                    output_chain_name.as_str(),
-                    prerouting_chain_name.as_str(),
-                    cgroup_guard,
-                    args.override_dns.clone(),
-                )?
-            )
+            Box::new(TProxyGuard::new(
+                port,
+                mark,
+                output_chain_name.as_str(),
+                prerouting_chain_name.as_str(),
+                cgroup_guard,
+                args.override_dns.clone(),
+            )?)
         }
         "trace" => {
             let prerouting_chain_name = format!("nozomi_trace_pre_{}", pid);
@@ -75,7 +84,9 @@ fn proxy_new_command(args: &Cli) -> anyhow::Result<()> {
                 cgroup_guard,
             )?)
         }
-        &_ => { unimplemented!() }
+        &_ => {
+            unimplemented!()
+        }
     };
 
     let original_uid = nix::unistd::getuid();
@@ -105,21 +116,25 @@ fn proxy_existing_pid(pid: u32, args: &Cli) -> anyhow::Result<()> {
     let _guard: Box<dyn Drop> = match args.mode.as_str() {
         "redirect" => {
             let output_chain_name = format!("nozomi_redirect_out_{}", pid);
-            Box::new(RedirectGuard::new(port, output_chain_name.as_str(), cgroup_guard, !args.redirect_dns)?) }
+            Box::new(RedirectGuard::new(
+                port,
+                output_chain_name.as_str(),
+                cgroup_guard,
+                !args.redirect_dns,
+            )?)
+        }
         "tproxy" => {
             let output_chain_name = format!("nozomi_tproxy_out_{}", pid);
             let prerouting_chain_name = format!("nozomi_tproxy_pre_{}", pid);
             let mark = pid;
-            Box::new(
-                TProxyGuard::new(
-                    port,
-                    mark,
-                    output_chain_name.as_str(),
-                    prerouting_chain_name.as_str(),
-                    cgroup_guard,
-                    args.override_dns.clone(),
-                )?
-            )
+            Box::new(TProxyGuard::new(
+                port,
+                mark,
+                output_chain_name.as_str(),
+                prerouting_chain_name.as_str(),
+                cgroup_guard,
+                args.override_dns.clone(),
+            )?)
         }
         "trace" => {
             let prerouting_chain_name = format!("nozomi_trace_pre_{}", pid);
@@ -130,7 +145,9 @@ fn proxy_existing_pid(pid: u32, args: &Cli) -> anyhow::Result<()> {
                 cgroup_guard,
             )?)
         }
-        _ => { unimplemented!() }
+        _ => {
+            unimplemented!()
+        }
     };
 
     let running = Arc::new(AtomicBool::new(true));
@@ -153,10 +170,10 @@ fn main() -> anyhow::Result<()> {
         .with_env_filter(tracing_subscriber::EnvFilter::from_env("LOG_LEVEL"))
         .init();
     nix::unistd::seteuid(nix::unistd::Uid::from_raw(0)).expect(
-        "cproxy failed to seteuid, please `chown root:root` and `chmod +s` on cproxy binary"
+        "cproxy failed to seteuid, please `chown root:root` and `chmod +s` on cproxy binary",
     );
     nix::unistd::setegid(nix::unistd::Gid::from_raw(0)).expect(
-        "cproxy failed to seteuid, please `chown root:root` and `chmod +s` on cproxy binary"
+        "cproxy failed to seteuid, please `chown root:root` and `chmod +s` on cproxy binary",
     );
     let args: Cli = Cli::from_args();
 
