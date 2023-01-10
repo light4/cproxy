@@ -1,11 +1,11 @@
 [package]
 name = "cproxy"
 version = "4.1.6"
-authors = ["Xiangru Lian <admin@mail.xrlian.com>"]
+authors = ["Xiangru Lian <admin@mail.xrlian.com>", "Light Ning <root@i01.io>"]
 description = "Transparent proxy built on cgroup net_cls."
 homepage = "https://github.com/NOBLES5E/cproxy"
 license = "AGPL-3.0-or-later"
-edition = "2018"
+edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -20,3 +20,9 @@ nix = "0.26"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 with_drop = "0.0.3"
+
+[profile.release]
+lto = true
+codegen-units = 1
+# strip = "debuginfo"
+split-debuginfo = 'packed' # https://doc.rust-lang.org/rustc/codegen-options/index.html#split-debuginfo
