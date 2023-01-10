@@ -1,33 +1,34 @@
-use structopt::StructOpt;
+use clap::{Parser, Subcommand};
 
 mod guards;
 mod proxy;
 
-#[derive(StructOpt, Debug)]
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
 pub struct Cli {
     /// Redirect traffic to specific local port.
-    #[structopt(long, env = "CPROXY_PORT", default_value = "1080")]
+    #[arg(long, env = "CPROXY_PORT", default_value = "1080")]
     port: u32,
     /// redirect DNS traffic. This option only works with redirect mode
-    #[structopt(long)]
+    #[arg(long)]
     redirect_dns: bool,
     /// Proxy mode can be `trace` (use iptables TRACE target to debug program network), `tproxy`,
     /// or `redirect`.
-    #[structopt(long, default_value = "redirect")]
+    #[arg(long, default_value = "redirect")]
     mode: String,
     /// Override dns server address. This option only works with tproxy mode
-    #[structopt(long)]
+    #[arg(long)]
     override_dns: Option<String>,
     /// Proxy an existing process.
-    #[structopt(long)]
+    #[arg(long)]
     pid: Option<u32>,
-    #[structopt(subcommand)]
+    #[command(subcommand)]
     command: Option<ChildCommand>,
 }
 
-#[derive(StructOpt, Debug)]
+#[derive(Subcommand, Debug)]
 enum ChildCommand {
-    #[structopt(external_subcommand)]
+    #[command(external_subcommand)]
     Command(Vec<String>),
 }
 
@@ -41,7 +42,7 @@ fn main() -> anyhow::Result<()> {
     nix::unistd::setegid(nix::unistd::Gid::from_raw(0)).expect(
         "cproxy failed to seteuid, please `chown root:root` and `chmod +s` on cproxy binary",
     );
-    let args: Cli = Cli::from_args();
+    let args: Cli = Cli::parse();
 
     if let Some(pid) = args.pid {
         proxy::proxy_existing_pid(pid, &args)?;
