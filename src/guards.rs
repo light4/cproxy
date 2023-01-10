@@ -2,6 +2,9 @@ use std::time::Duration;
 
 use cgroups_rs::{cgroup_builder::CgroupBuilder, Cgroup, CgroupPid};
 
+pub trait Guard {}
+impl<T> Guard for T {}
+
 #[allow(unused_variables)]
 pub struct CGroupGuard {
     pub pid: u32,
@@ -16,7 +19,7 @@ impl CGroupGuard {
         let hier = cgroups_rs::hierarchies::auto();
         let hier_v2 = hier.v2();
         let class_id = pid;
-        let cg_path = format!("cproxy-{}", pid);
+        let cg_path = format!("cproxy-{pid}");
         let cg: Cgroup = CgroupBuilder::new(cg_path.as_str())
             .network()
             .class_id(class_id as u64)
@@ -122,7 +125,7 @@ pub struct IpRuleGuardInner {
 
 #[allow(unused)]
 pub struct IpRuleGuard {
-    inner: Box<dyn Drop>,
+    inner: Box<dyn Guard>,
 }
 
 impl IpRuleGuard {
@@ -326,7 +329,7 @@ impl TraceGuard {
 impl Drop for TraceGuard {
     fn drop(&mut self) {
         let output_chain_name = &self.output_chain_name;
-        let prerouting_chain_name = &self.prerouting_chain_name;
+        let _prerouting_chain_name = &self.prerouting_chain_name;
 
         std::thread::sleep(Duration::from_millis(100));
 
