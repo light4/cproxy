@@ -3,12 +3,18 @@
 use std::{fmt::Display, fs::File, io::Read, str::FromStr};
 
 use anyhow::{bail, Error, Result};
+use directories::ProjectDirs;
 use kdl::KdlDocument;
+use tracing::debug;
 
 use crate::Cli;
 
+const PKG_NAME: &str = env!("CARGO_PKG_NAME");
+
 #[derive(Clone, Debug)]
 pub struct Config {
+    /// project directories, see https://github.com/dirs-dev/directories-rs
+    pub project_dirs: ProjectDirs,
     /// default 1080
     pub port: u16,
     /// redirect DNS traffic. This option only works with redirect mode
@@ -53,11 +59,21 @@ impl FromStr for ProxyMode {
 
 impl Config {
     pub fn init(cli: &Cli) -> Result<Self> {
+        let project_dirs = ProjectDirs::from("io", "i01", PKG_NAME).unwrap();
+
+        let default_config = project_dirs
+            .config_dir()
+            .join(concat!(env!("CARGO_PKG_NAME"), ".kdl"));
+
         let mut config_str = String::new();
         if let Some(config_path) = &cli.config {
             let mut file = File::open(config_path)?;
             file.read_to_string(&mut config_str)?;
+        } else if default_config.exists() {
+            let mut file = File::open(default_config)?;
+            file.read_to_string(&mut config_str)?;
         }
+
         let doc: KdlDocument = config_str.parse()?;
 
         let mode = cli
@@ -82,6 +98,7 @@ impl Config {
         };
 
         let r = Self {
+            project_dirs,
             port: cli.port.unwrap_or_else(|| {
                 doc.get_arg("port")
                     .map(|i| i.as_i64().unwrap() as u16)
@@ -95,6 +112,8 @@ impl Config {
             mode,
             override_dns,
         };
+
+        debug!("CProxy config: {r:#?}");
         Ok(r)
     }
 }

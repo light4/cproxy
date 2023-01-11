@@ -48,13 +48,11 @@ fn main() -> anyhow::Result<()> {
 
     if let Some(pid) = args.pid {
         proxy::proxy_existing_pid(pid, &config)?;
-    } else {
-        let ChildCommand::Command(child_command) = &args
-            .command
-            .as_ref()
-            .expect("must have command specified if --pid not provided");
+    } else if let Some(ChildCommand::Command(child_command)) = &args.command.as_ref() {
         tracing::info!("subcommand {:?}", child_command);
         proxy::proxy_new_command(child_command, &config)?;
+    } else {
+        eprintln!("Error, must provide pid by --pid or command");
     }
 
     Ok(())
