@@ -12,7 +12,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1"
 clap = { version = "4.0", features = ["derive", "env"] }
-cgroups-rs = "0.2"
+cgroups-rs = "0.3"
 cmd_lib = "1.3"
 ctrlc = "3.2"
 directories = "4.0"
