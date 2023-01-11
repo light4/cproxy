@@ -8,45 +8,38 @@ use std::{
 };
 
 use crate::{
+    config::{Config, ProxyMode},
     guards::{CGroupGuard, Guard, RedirectGuard, TProxyGuard, TraceGuard},
-    ChildCommand, Cli,
 };
 
-pub fn proxy_new_command(args: &Cli) -> anyhow::Result<()> {
+pub fn proxy_new_command(child_command: &[String], config: &Config) -> anyhow::Result<()> {
     let pid = std::process::id();
-    let ChildCommand::Command(child_command) = &args
-        .command
-        .as_ref()
-        .expect("must have command specified if --pid not provided");
-    tracing::info!("subcommand {:?}", child_command);
-
-    let port = args.port;
 
     let cgroup_guard = CGroupGuard::new(pid)?;
-    let _guard: Box<dyn Guard> = match args.mode.as_str() {
-        "redirect" => {
+    let _guard: Box<dyn Guard> = match config.mode {
+        ProxyMode::Redirect => {
             let output_chain_name = format!("nozomi_redirect_out_{pid}");
             Box::new(RedirectGuard::new(
-                port,
+                config.port,
                 output_chain_name.as_str(),
                 cgroup_guard,
-                args.redirect_dns,
+                config.redirect_dns,
             )?)
         }
-        "tproxy" => {
+        ProxyMode::TProxy => {
             let output_chain_name = format!("nozomi_tproxy_out_{pid}");
             let prerouting_chain_name = format!("nozomi_tproxy_pre_{pid}");
             let mark = pid;
             Box::new(TProxyGuard::new(
-                port,
+                config.port,
                 mark,
                 output_chain_name.as_str(),
                 prerouting_chain_name.as_str(),
                 cgroup_guard,
-                args.override_dns.clone(),
+                config.override_dns.clone(),
             )?)
         }
-        "trace" => {
+        ProxyMode::Trace => {
             let prerouting_chain_name = format!("nozomi_trace_pre_{pid}");
             let output_chain_name = format!("nozomi_trace_out_{pid}");
             Box::new(TraceGuard::new(
@@ -54,9 +47,6 @@ pub fn proxy_new_command(args: &Cli) -> anyhow::Result<()> {
                 prerouting_chain_name.as_str(),
                 cgroup_guard,
             )?)
-        }
-        &_ => {
-            unimplemented!()
         }
     };
 
@@ -72,7 +62,6 @@ pub fn proxy_new_command(args: &Cli) -> anyhow::Result<()> {
         }
     };
     let mut child = std::process::Command::new(&child_command[0])
-        .env("CPROXY_ENV", format!("cproxy/{port}"))
         .uid(uid)
         .gid(gid)
         .args(&child_command[1..])
@@ -87,34 +76,32 @@ pub fn proxy_new_command(args: &Cli) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn proxy_existing_pid(pid: u32, args: &Cli) -> anyhow::Result<()> {
-    let port = args.port;
-
+pub fn proxy_existing_pid(pid: u32, config: &Config) -> anyhow::Result<()> {
     let cgroup_guard = CGroupGuard::new(pid)?;
-    let _guard: Box<dyn Guard> = match args.mode.as_str() {
-        "redirect" => {
+    let _guard: Box<dyn Guard> = match config.mode {
+        ProxyMode::Redirect => {
             let output_chain_name = format!("nozomi_redirect_out_{pid}");
             Box::new(RedirectGuard::new(
-                port,
+                config.port,
                 output_chain_name.as_str(),
                 cgroup_guard,
-                !args.redirect_dns,
+                !config.redirect_dns,
             )?)
         }
-        "tproxy" => {
+        ProxyMode::TProxy => {
             let output_chain_name = format!("nozomi_tproxy_out_{pid}");
             let prerouting_chain_name = format!("nozomi_tproxy_pre_{pid}");
             let mark = pid;
             Box::new(TProxyGuard::new(
-                port,
+                config.port,
                 mark,
                 output_chain_name.as_str(),
                 prerouting_chain_name.as_str(),
                 cgroup_guard,
-                args.override_dns.clone(),
+                config.override_dns.clone(),
             )?)
         }
-        "trace" => {
+        ProxyMode::Trace => {
             let prerouting_chain_name = format!("nozomi_trace_pre_{pid}");
             let output_chain_name = format!("nozomi_trace_out_{pid}");
             Box::new(TraceGuard::new(
@@ -122,9 +109,6 @@ pub fn proxy_existing_pid(pid: u32, args: &Cli) -> anyhow::Result<()> {
                 prerouting_chain_name.as_str(),
                 cgroup_guard,
             )?)
-        }
-        _ => {
-            unimplemented!()
         }
     };
 

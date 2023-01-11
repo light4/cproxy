@@ -47,7 +47,7 @@ impl Drop for CGroupGuard {
 
 #[allow(unused)]
 pub struct RedirectGuard {
-    port: u32,
+    port: u16,
     output_chain_name: String,
     cgroup_guard: CGroupGuard,
     redirect_dns: bool,
@@ -55,7 +55,7 @@ pub struct RedirectGuard {
 
 impl RedirectGuard {
     pub fn new(
-        port: u32,
+        port: u16,
         output_chain_name: &str,
         cgroup_guard: CGroupGuard,
         redirect_dns: bool,
@@ -180,7 +180,7 @@ impl IpRuleGuard {
 
 #[allow(unused)]
 pub struct TProxyGuard {
-    port: u32,
+    port: u16,
     mark: u32,
     output_chain_name: String,
     prerouting_chain_name: String,
@@ -191,7 +191,7 @@ pub struct TProxyGuard {
 
 impl TProxyGuard {
     pub fn new(
-        port: u32,
+        port: u16,
         mark: u32,
         output_chain_name: &str,
         prerouting_chain_name: &str,
