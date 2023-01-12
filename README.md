@@ -61,8 +61,8 @@ cproxy --port <destination-local-port> --mode tproxy --pid <existing-process-pid
 
 With `--mode tproxy`, there are several differences:
 
-* All UDP traffic are proxied instead of only DNS UDP traffic to port 53.
-* Your V2Ray or shadowsocks service should have `tproxy` enabled on the inbound port. For V2Ray, you
+- All UDP traffic are proxied instead of only DNS UDP traffic to port 53.
+- Your V2Ray or shadowsocks service should have `tproxy` enabled on the inbound port. For V2Ray, you
   need `"tproxy": "tproxy"` as
   in [V2Ray Documentation](https://www.v2ray.com/en/configuration/transport.html#sockoptobject). For shadowsocks, you
   need `-u` as shown in [shadowsocks manpage](http://manpages.org/ss-redir).
@@ -100,21 +100,25 @@ You will be able to see log in `dmesg`. Note that this requires a recent enough 
 
 ## Limitations
 
-* `cproxy` requires root access to modify `cgroup`.
-* Currently only tested on Linux.
+- `cproxy` requires root access to modify `cgroup`.
+- Currently only tested on Linux.
 
 ## Similar projects
 
 There are some awesome existing work:
 
-* [graftcp](https://github.com/hmgle/graftcp): work on most programs, but cannot proxy UDP (such as DNS)
+- [graftcp](https://github.com/hmgle/graftcp): work on most programs, but cannot proxy UDP (such as DNS)
   requests. `graftcp` also has performance hit on the underlying program, since it uses `ptrace`.
-* [proxychains](https://github.com/haad/proxychains): easy to use, but not working on static linked programs (such as Go
+- [proxychains](https://github.com/haad/proxychains): easy to use, but not working on static linked programs (such as Go
   programs).
-* [proxychains-ng](https://github.com/rofl0r/proxychains-ng): similar to proxychains.
-* [cgproxy](https://github.com/springzfx/cgproxy): `cgproxy` also uses cgroup to do transparent proxy, and the idea is
+- [proxychains-ng](https://github.com/rofl0r/proxychains-ng): similar to proxychains.
+- [cgproxy](https://github.com/springzfx/cgproxy): `cgproxy` also uses cgroup to do transparent proxy, and the idea is
   similar to `cproxy`'s. There are some differences in UX and system requirements:
-    * `cgproxy` requires system `cgroup` v2 support, while `cproxy` works with both v1 and v2.
-    * `cgproxy` requires a background daemon process `cgproxyd` running, while `cproxy` does not.
-    * `cgproxy` requires `tproxy`, which is optional in `cproxy`.
-    * `cgproxy` can be used to do global proxy, while `cproxy` does not intended to support global proxy.
+  - `cgproxy` requires system `cgroup` v2 support, while `cproxy` works with both v1 and v2.
+  - `cgproxy` requires a background daemon process `cgproxyd` running, while `cproxy` does not.
+  - `cgproxy` requires `tproxy`, which is optional in `cproxy`.
+  - `cgproxy` can be used to do global proxy, while `cproxy` does not intended to support global proxy.
+
+### Reference
+
+mod [src/iptables](./src/iptables.rs) forked from <https://github.com/yaa110/rust-iptables>
