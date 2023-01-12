@@ -2,6 +2,9 @@ use std::time::Duration;
 
 use cgroups_rs::{cgroup_builder::CgroupBuilder, Cgroup, CgroupPid};
 use color_eyre::Result;
+use xshell::{cmd, Shell};
+
+use crate::iptables::{IPTablesBuider, Table};
 
 pub trait Guard {}
 impl<T> Guard for T {}
@@ -49,7 +52,7 @@ impl Drop for CGroupGuard {
 #[allow(unused)]
 pub struct RedirectGuard {
     port: u16,
-    output_chain_name: String,
+    output_chain: String,
     cgroup_guard: CGroupGuard,
     redirect_dns: bool,
 }
@@ -57,7 +60,7 @@ pub struct RedirectGuard {
 impl RedirectGuard {
     pub fn new(
         port: u16,
-        output_chain_name: &str,
+        output_chain: &str,
         cgroup_guard: CGroupGuard,
         redirect_dns: bool,
     ) -> Result<Self> {
@@ -68,36 +71,46 @@ impl RedirectGuard {
         );
         let class_id = cgroup_guard.class_id;
         let cgroup_path = cgroup_guard.cg_path.as_str();
-        (cmd_lib::run_cmd! {
-        iptables -t nat -N ${output_chain_name};
-        iptables -t nat -A OUTPUT -j ${output_chain_name};
-        iptables -t nat -A ${output_chain_name} -p udp -o lo -j RETURN;
-        iptables -t nat -A ${output_chain_name} -p tcp -o lo -j RETURN;
-        })?;
+
+        let nat = IPTablesBuider::new(Table::Nat)
+            .cmd_uid(0)
+            .cmd_gid(0)
+            .build()?;
+
+        nat.new_chain(output_chain)?;
+        nat.append("OUTPUT", &format!("-j {output_chain}"))?;
+        nat.append(output_chain, "-p udp -o lo -j RETURN")?;
+        nat.append(output_chain, "-p tcp -o lo -j RETURN")?;
 
         if cgroup_guard.hier_v2 {
-            (cmd_lib::run_cmd! {
-                iptables -t nat -A ${output_chain_name} -p tcp -m cgroup --path ${cgroup_path} -j REDIRECT --to-ports ${port};
-            })?;
+            nat.append(
+                output_chain,
+                &format!("-p tcp -m cgroup --path {cgroup_path} -j REDIRECT --to-ports {port}"),
+            )?;
             if redirect_dns {
-                (cmd_lib::run_cmd! {
-                    iptables -t nat -A ${output_chain_name} -p udp -m cgroup --path ${cgroup_path} --dport 53 -j REDIRECT --to-ports ${port};
-                })?;
+                nat.append(
+                output_chain,
+                &format!(
+                    "-p udp -m cgroup --path {cgroup_path} --dport 53 -j REDIRECT --to-ports {port}"
+                    ),
+                )?;
             }
         } else {
-            (cmd_lib::run_cmd! {
-                iptables -t nat -A ${output_chain_name} -p tcp -m cgroup --cgroup ${class_id} -j REDIRECT --to-ports ${port};
-            })?;
+            nat.append(
+                output_chain,
+                &format!("-p tcp -m cgroup --cgroup {class_id} -j REDIRECT --to-ports {port}"),
+            )?;
             if redirect_dns {
-                (cmd_lib::run_cmd! {
-                    iptables -t nat -A ${output_chain_name} -p udp -m cgroup --cgroup ${class_id} --dport 53 -j REDIRECT --to-ports ${port};
-                })?;
+                nat.append(
+                    output_chain,
+                    &format!("-p udp -m cgroup --cgroup {class_id} --dport 53 -j REDIRECT --to-ports {port}"),
+                )?;
             }
         }
 
         Ok(Self {
             port,
-            output_chain_name: output_chain_name.to_owned(),
+            output_chain: output_chain.to_owned(),
             cgroup_guard,
             redirect_dns,
         })
@@ -106,14 +119,19 @@ impl RedirectGuard {
 
 impl Drop for RedirectGuard {
     fn drop(&mut self) {
-        let output_chain_name = &self.output_chain_name;
+        let output_chain = &self.output_chain;
 
-        (cmd_lib::run_cmd! {
-          iptables -t nat -D OUTPUT -j ${output_chain_name};
-          iptables -t nat -F ${output_chain_name};
-          iptables -t nat -X ${output_chain_name};
-        })
-        .expect("drop iptables and cgroup failed");
+        let nat = IPTablesBuider::new(Table::Nat)
+            .cmd_uid(0)
+            .cmd_gid(0)
+            .build()
+            .expect("init iptables error");
+
+        let msg = "drop iptables and cgroup failed";
+        nat.delete("OUTPUT", &format!("-j {output_chain}"))
+            .expect(msg);
+        nat.flush_chain(output_chain).expect(msg);
+        nat.delete_chain(output_chain).expect(msg);
     }
 }
 
@@ -133,23 +151,30 @@ impl IpRuleGuard {
     pub fn new(fwmark: u32, table: u32) -> Self {
         let (sender, receiver) = flume::unbounded();
         let thread = std::thread::spawn(move || {
-            (cmd_lib::run_cmd! {
-              ip rule add fwmark ${fwmark} table ${table};
-              ip route add local 0.0.0.0/0 dev lo table ${table};
-            })
-            .expect("set routing rules failed");
+            let sh = Shell::new().expect("init shell error");
+            let fwmark = fwmark.to_string();
+            let table = table.to_string();
+            cmd!(sh, "ip rule add fwmark {fwmark} table {table}")
+                .quiet()
+                .run()
+                .expect("set routing rules failed");
+            cmd!(sh, "ip route add local 0.0.0.0/0 dev lo table {table}")
+                .quiet()
+                .run()
+                .expect("set routing rules failed");
             loop {
-                if (cmd_lib::run_fun! { ip rule list fwmark ${fwmark} })
+                if cmd!(sh, "ip rule list fwmark {fwmark}")
+                    .read()
                     .unwrap()
                     .is_empty()
                 {
                     tracing::warn!(
                         "detected disappearing routing policy, possibly due to interruped network, resetting"
                     );
-                    (cmd_lib::run_cmd! {
-                      ip rule add fwmark ${fwmark} table ${table};
-                    })
-                    .expect("set routing rules failed");
+                    cmd!(sh, "ip rule add fwmark {fwmark} table {table}")
+                        .quiet()
+                        .run()
+                        .expect("set routing rules failed");
                 }
                 if receiver.recv_timeout(Duration::from_secs(1)).is_ok() {
                     break;
@@ -165,13 +190,17 @@ impl IpRuleGuard {
         let inner = with_drop::with_drop(inner, |x| {
             x.stop_channel.send(()).unwrap();
             x.guard_thread.join().unwrap();
-            let mark = x.fwmark;
-            let table = x.table;
-            (cmd_lib::run_cmd! {
-                ip rule delete fwmark ${mark} table ${table};
-                ip route delete local 0.0.0.0/0 dev lo table ${table};
-            })
-            .expect("drop routing rules failed");
+            let sh = Shell::new().expect("init shell error");
+            let mark = x.fwmark.to_string();
+            let table = x.table.to_string();
+            cmd!(sh, "ip rule delete fwmark {mark} table {table}")
+                .quiet()
+                .run()
+                .expect("drop routing rules failed");
+            cmd!(sh, "ip route delete local 0.0.0.0/0 dev lo table {table}")
+                .quiet()
+                .run()
+                .expect("drop routing rules failed");
         });
         Self {
             inner: Box::new(inner),
@@ -183,8 +212,8 @@ impl IpRuleGuard {
 pub struct TProxyGuard {
     port: u16,
     mark: u32,
-    output_chain_name: String,
-    prerouting_chain_name: String,
+    output_chain: String,
+    prerouting_chain: String,
     iprule_guard: IpRuleGuard,
     cgroup_guard: CGroupGuard,
     override_dns: Option<String>,
@@ -194,8 +223,8 @@ impl TProxyGuard {
     pub fn new(
         port: u16,
         mark: u32,
-        output_chain_name: &str,
-        prerouting_chain_name: &str,
+        output_chain: &str,
+        prerouting_chain: &str,
         cgroup_guard: CGroupGuard,
         override_dns: Option<String>,
     ) -> Result<Self> {
@@ -207,56 +236,71 @@ impl TProxyGuard {
             override_dns
         );
         let iprule_guard = IpRuleGuard::new(mark, mark);
-        (cmd_lib::run_cmd! {
 
-        iptables -t mangle -N ${prerouting_chain_name};
-        iptables -t mangle -A PREROUTING -j ${prerouting_chain_name};
-        iptables -t mangle -A ${prerouting_chain_name} -p tcp -o lo -j RETURN;
-        iptables -t mangle -A ${prerouting_chain_name} -p udp -o lo -j RETURN;
-        iptables -t mangle -A ${prerouting_chain_name} -p udp -m mark --mark ${mark} -j TPROXY --on-ip 127.0.0.1 --on-port ${port};
-        iptables -t mangle -A ${prerouting_chain_name} -p tcp -m mark --mark ${mark} -j TPROXY --on-ip 127.0.0.1 --on-port ${port};
+        let mangle = IPTablesBuider::new(Table::Mangle)
+            .cmd_uid(0)
+            .cmd_gid(0)
+            .build()?;
 
-        iptables -t mangle -N ${output_chain_name};
-        iptables -t mangle -A OUTPUT -j ${output_chain_name};
-        iptables -t mangle -A ${output_chain_name} -p tcp -o lo -j RETURN;
-        iptables -t mangle -A ${output_chain_name} -p udp -o lo -j RETURN;
-        })?;
+        mangle.new_chain(prerouting_chain)?;
+        mangle.append("PREROUTING", &format!("-j {prerouting_chain}"))?;
+        mangle.append(prerouting_chain, "-p tcp -o lo -j RETURN")?;
+        mangle.append(prerouting_chain, "-p udp -o lo -j RETURN")?;
+        mangle.append(
+            prerouting_chain,
+            &format!("-p udp -m mark --mark {mark} -j TPROXY --on-ip 127.0.0.1 --on-port {port}"),
+        )?;
+        mangle.append(
+            prerouting_chain,
+            &format!("-p tcp -m mark --mark {mark} -j TPROXY --on-ip 127.0.0.1 --on-port {port}"),
+        )?;
 
+        mangle.new_chain(output_chain)?;
+        mangle.append("OUTPUT", &format!("-j {output_chain}"))?;
+        mangle.append(output_chain, "-p tcp -o lo -j RETURN")?;
+        mangle.append(output_chain, "-p udp -o lo -j RETURN")?;
+
+        let nat = IPTablesBuider::new(Table::Mangle)
+            .cmd_uid(0)
+            .cmd_gid(0)
+            .build()?;
         if override_dns.is_some() {
-            (cmd_lib::run_cmd! {
-                iptables -t nat -N ${output_chain_name};
-                iptables -t nat -A OUTPUT -j ${output_chain_name};
-                iptables -t nat -A ${output_chain_name} -p udp -o lo -j RETURN;
-            })?;
+            nat.new_chain(output_chain)?;
+            nat.append("OUTPUT", &format!("-j {output_chain}"))?;
+            nat.append(output_chain, "-p udp -o lo -j RETURN")?;
         }
 
         if cgroup_guard.hier_v2 {
-            (cmd_lib::run_cmd! {
-                iptables -t mangle -A ${output_chain_name} -p tcp -m cgroup --path ${cg_path} -j MARK --set-mark ${mark};
-                iptables -t mangle -A ${output_chain_name} -p udp -m cgroup --path ${cg_path} -j MARK --set-mark ${mark};
-            })?;
+            mangle.append(
+                output_chain,
+                &format!("-p tcp -m cgroup --path {cg_path} -j MARK --set-mark {mark}"),
+            )?;
+            mangle.append(
+                output_chain,
+                &format!("-p udp -m cgroup --path {cg_path} -j MARK --set-mark {mark}"),
+            )?;
             if let Some(override_dns) = &override_dns {
-                (cmd_lib::run_cmd! {
-                    iptables -t nat -A ${output_chain_name} -p udp -m cgroup --path ${cg_path} --dport 53 -j DNAT --to-destination ${override_dns};
-                })?;
+                nat.append(output_chain, &format!("-p udp -m cgroup --path {cg_path} --dport 53 -j DNAT --to-destination {override_dns}"))?;
             }
         } else {
-            (cmd_lib::run_cmd! {
-                iptables -t mangle -A ${output_chain_name} -p tcp -m cgroup --cgroup ${class_id} -j MARK --set-mark ${mark};
-                iptables -t mangle -A ${output_chain_name} -p udp -m cgroup --cgroup ${class_id} -j MARK --set-mark ${mark};
-            })?;
+            mangle.append(
+                output_chain,
+                &format!("-p tcp -m cgroup --cgroup {class_id} -j MARK --set-mark {mark}"),
+            )?;
+            mangle.append(
+                output_chain,
+                &format!("-p udp -m cgroup --cgroup {class_id} -j MARK --set-mark {mark}"),
+            )?;
             if let Some(override_dns) = &override_dns {
-                (cmd_lib::run_cmd! {
-                    iptables -t nat -A ${output_chain_name} -p udp -m cgroup --cgroup ${class_id} --dport 53 -j DNAT --to-destination ${override_dns};
-                })?;
+                nat.append(output_chain, &format!("-p udp -m cgroup --cgroup {class_id} --dport 53 -j DNAT --to-destination {override_dns}"))?;
             }
         }
 
         Ok(Self {
             port,
             mark,
-            output_chain_name: output_chain_name.to_owned(),
-            prerouting_chain_name: prerouting_chain_name.to_owned(),
+            output_chain: output_chain.to_owned(),
+            prerouting_chain: prerouting_chain.to_owned(),
             iprule_guard,
             cgroup_guard,
             override_dns,
@@ -266,62 +310,81 @@ impl TProxyGuard {
 
 impl Drop for TProxyGuard {
     fn drop(&mut self) {
-        let output_chain_name = &self.output_chain_name;
-        let prerouting_chain_name = &self.prerouting_chain_name;
+        let output_chain = &self.output_chain;
+        let prerouting_chain = &self.prerouting_chain;
 
         std::thread::sleep(Duration::from_millis(100));
 
-        (cmd_lib::run_cmd! {
-            iptables -t mangle -D PREROUTING -j ${prerouting_chain_name};
-            iptables -t mangle -F ${prerouting_chain_name};
-            iptables -t mangle -X ${prerouting_chain_name};
+        let mangle = IPTablesBuider::new(Table::Mangle)
+            .cmd_uid(0)
+            .cmd_gid(0)
+            .build()
+            .expect("init iptables error");
 
-            iptables -t mangle -D OUTPUT -j ${output_chain_name};
-            iptables -t mangle -F ${output_chain_name};
-            iptables -t mangle -X ${output_chain_name};
-        })
-        .expect("drop iptables and cgroup failed");
+        let msg = "drop iptables and cgroup failed";
+        mangle
+            .delete("PREROUTING", &format!("-j {prerouting_chain}"))
+            .expect(msg);
+        mangle.flush_chain(prerouting_chain).expect(msg);
+        mangle.delete_chain(prerouting_chain).expect(msg);
+
+        mangle
+            .delete("OUTPUT", &format!("-j {output_chain}"))
+            .expect(msg);
+        mangle.flush_chain(output_chain).expect(msg);
+        mangle.delete_chain(output_chain).expect(msg);
 
         if self.override_dns.is_some() {
-            (cmd_lib::run_cmd! {
-            iptables -t nat -D OUTPUT -j ${output_chain_name};
-            iptables -t nat -F ${output_chain_name};
-            iptables -t nat -X ${output_chain_name};
-            })
-            .expect("drop iptables failed");
+            let nat = IPTablesBuider::new(Table::Nat)
+                .cmd_uid(0)
+                .cmd_gid(0)
+                .build()
+                .expect("init iptables error");
+
+            let msg = format!("drop iptables nat: {output_chain}");
+            nat.delete("OUTPUT", &format!("-j {output_chain}"))
+                .expect(&msg);
+            nat.flush_chain(output_chain).expect(&msg);
+            nat.delete_chain(output_chain).expect(&msg);
         }
     }
 }
 
 #[allow(unused)]
 pub struct TraceGuard {
-    prerouting_chain_name: String,
-    output_chain_name: String,
+    prerouting_chain: String,
+    output_chain: String,
     cgroup_guard: CGroupGuard,
 }
 
 impl TraceGuard {
     pub fn new(
-        output_chain_name: &str,
-        prerouting_chain_name: &str,
+        output_chain: &str,
+        prerouting_chain: &str,
         cgroup_guard: CGroupGuard,
     ) -> Result<Self> {
         let class_id = cgroup_guard.class_id;
-        (cmd_lib::run_cmd! {
-        // iptables -t raw -N ${prerouting_chain_name};
-        // iptables -t raw -A PREROUTING -j ${prerouting_chain_name};
-        // iptables -t raw -A ${prerouting_chain_name} -p udp -j LOG;
-        // iptables -t raw -A ${prerouting_chain_name} -p tcp -j LOG;
 
-        iptables -t raw -N ${output_chain_name};
-        iptables -t raw -A OUTPUT -j ${output_chain_name};
-        iptables -t raw -A ${output_chain_name} -m cgroup --cgroup ${class_id} -p tcp -j LOG;
-        iptables -t raw -A ${output_chain_name} -m cgroup --cgroup ${class_id} -p udp -j LOG;
-        })?;
+        let raw = IPTablesBuider::new(Table::Raw)
+            .cmd_uid(0)
+            .cmd_gid(0)
+            .build()
+            .expect("init iptables error");
+
+        raw.new_chain(output_chain)?;
+        raw.append("OUTPUT", &format!("-j {output_chain}"))?;
+        raw.append(
+            output_chain,
+            &format!("-m cgroup --cgroup {class_id} -p tcp -j LOG"),
+        )?;
+        raw.append(
+            output_chain,
+            &format!("-m cgroup --cgroup {class_id} -p udp -j LOG"),
+        )?;
 
         Ok(Self {
-            output_chain_name: output_chain_name.to_owned(),
-            prerouting_chain_name: prerouting_chain_name.to_owned(),
+            output_chain: output_chain.to_owned(),
+            prerouting_chain: prerouting_chain.to_owned(),
             cgroup_guard,
         })
     }
@@ -329,20 +392,22 @@ impl TraceGuard {
 
 impl Drop for TraceGuard {
     fn drop(&mut self) {
-        let output_chain_name = &self.output_chain_name;
-        let _prerouting_chain_name = &self.prerouting_chain_name;
+        let output_chain = &self.output_chain;
+        let _prerouting_chain = &self.prerouting_chain;
 
         std::thread::sleep(Duration::from_millis(100));
 
-        (cmd_lib::run_cmd! {
-            // iptables -t raw -D PREROUTING -j ${prerouting_chain_name};
-            // iptables -t raw -F ${prerouting_chain_name};
-            // iptables -t raw -X ${prerouting_chain_name};
+        let raw = IPTablesBuider::new(Table::Raw)
+            .cmd_uid(0)
+            .cmd_gid(0)
+            .build()
+            .expect("init iptables error");
 
-            iptables -t raw -D OUTPUT -j ${output_chain_name};
-            iptables -t raw -F ${output_chain_name};
-            iptables -t raw -X ${output_chain_name};
-        })
-        .expect("drop iptables and cgroup failed");
+        let msg = "drop iptables and cgroup failed";
+
+        raw.delete("OUTPUT", &format!("-j {output_chain}"))
+            .expect(msg);
+        raw.flush_chain(output_chain).expect(msg);
+        raw.delete_chain(output_chain).expect(msg);
     }
 }

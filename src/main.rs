@@ -6,7 +6,9 @@ use config::Config;
 use nix::sys::stat::Mode;
 
 mod config;
+mod errors;
 mod guards;
+mod iptables;
 mod proxy;
 
 #[derive(Parser, Debug)]
@@ -45,7 +47,7 @@ fn get_setuid_help() -> Result<String> {
     let bin_path = std::fs::read_link("/proc/self/exe")?;
     let filename = bin_path.to_string_lossy();
     let file_stat = nix::sys::stat::lstat(&bin_path)?;
-    let file_mode = nix::sys::stat::Mode::from_bits_truncate(file_stat.st_mode.into());
+    let file_mode = nix::sys::stat::Mode::from_bits_truncate(file_stat.st_mode);
     if !file_mode.contains(Mode::S_ISUID) {
         Ok(format!(
             "    please run these cmds to setup:
