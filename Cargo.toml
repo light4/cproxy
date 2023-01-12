@@ -15,7 +15,7 @@ clap = { version = "4.0", features = ["derive", "env"] }
 color-eyre = "0.6"
 ctrlc = "3.2"
 directories = "4.0"
-flume = "0.10"
+flume = { version = "0.10", default-features = false }
 kdl = "4.6"
 lazy-regex = "2.4"
 nix = "0.26"
