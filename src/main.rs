@@ -42,17 +42,20 @@ enum ChildCommand {
 }
 
 fn get_setuid_help() -> Result<String> {
-    let filename = std::env::args().next().unwrap();
-    let bin_path = PathBuf::from(&filename);
+    let bin_path = std::fs::read_link("/proc/self/exe")?;
+    let filename = bin_path.to_string_lossy();
     let file_stat = nix::sys::stat::lstat(&bin_path)?;
     let file_mode = nix::sys::stat::Mode::from_bits_truncate(file_stat.st_mode.into());
     if !file_mode.contains(Mode::S_ISUID) {
         Ok(format!(
-            "please `sudo chown root:root {filename}` and `sudo chmod +s {filename}`"
+            "    please run these cmds to setup:
+        sudo chown root:root {filename}
+        sudo chmod +s {filename}
+"
         ))
     } else {
         Ok(
-            "文件位于一个设置了 `nosuid` 选项的文件系统(用 findmnt 查看)或没有 root 权限的 NFS 文件系统中吗？"
+            "    文件位于一个设置了 `nosuid` 选项的文件系统(用 findmnt 查看)或者没有 root 权限的 NFS 文件系统中吗？"
                 .to_string(),
         )
     }
@@ -69,7 +72,7 @@ fn main() -> Result<()> {
 
     if let Err(e) = nix::unistd::seteuid(nix::unistd::Uid::from_raw(0)) {
         let msg = get_setuid_help()?;
-        eprintln!("cproxy failed to seteuid: {msg}");
+        eprintln!("cproxy failed to seteuid:\n{msg}");
         return Err(e.into());
     }
 
