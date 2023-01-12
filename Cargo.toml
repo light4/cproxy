@@ -18,7 +18,7 @@ directories = "4.0"
 flume = { version = "0.10", default-features = false }
 kdl = "4.6"
 lazy-regex = "2.4"
-nix = "0.26"
+nix = { version = "0.26", default-features = false, features = ["fs", "user"] }
 semver = "1.0"
 thiserror = "1.0"
 tracing = "0.1"
