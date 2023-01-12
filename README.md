@@ -3,7 +3,7 @@
 </p>
 <hr/>
 
-Forked from [![Crates.io](https://img.shields.io/crates/v/cproxy)](https://crates.io/crates/cproxy)
+Forked from <https://github.com/NOBLES5E/cproxy>
 
 [![CI](https://github.com/light4/cproxy/actions/workflows/test.yaml/badge.svg)](https://github.com/light4/cproxy/actions/workflows/test.yaml)
 [![build-and-release](https://github.com/light4/cproxy/actions/workflows/build-and-release.yaml/badge.svg)](https://github.com/light4/cproxy/actions/workflows/build-and-release.yaml)
