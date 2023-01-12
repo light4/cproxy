@@ -14,8 +14,18 @@ use crate::Cli;
 
 const PKG_NAME: &str = env!("CARGO_PKG_NAME");
 
+#[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
+pub enum IPStack {
+    V4,
+    V6,
+    Both,
+}
+
 #[derive(Clone, Debug)]
 pub struct Config {
+    /// default both(ipv4 and ipv6)
+    pub ip_stack: IPStack,
     /// config path
     pub path: Option<PathBuf>,
     /// project directories, see https://github.com/dirs-dev/directories-rs
@@ -84,6 +94,21 @@ impl Config {
 
         let doc: KdlDocument = config_str.parse()?;
 
+        let ip_stack = {
+            let stack_str = if let Some(s) = &cli.ip_stack {
+                s
+            } else {
+                doc.get_arg("ip_stack")
+                    .map(|i| i.as_string().unwrap())
+                    .unwrap_or("both")
+            };
+            match stack_str {
+                "ipv4" => IPStack::V4,
+                "ipv6" => IPStack::V6,
+                "both" => IPStack::Both,
+                _ => IPStack::V4,
+            }
+        };
         let mode = cli
             .mode
             .to_owned()
@@ -106,6 +131,7 @@ impl Config {
         };
 
         let r = Self {
+            ip_stack,
             path: config_path,
             project_dirs,
             port: cli.port.unwrap_or_else(|| {

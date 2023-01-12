@@ -20,6 +20,9 @@ pub struct Cli {
     /// Redirect traffic to specific local port. default 1080
     #[arg(short, long)]
     port: Option<u16>,
+    /// Ip stack (ipv4/ipv6/both)
+    #[arg(short = 's', long)]
+    ip_stack: Option<String>,
     /// redirect DNS traffic. This option only works with redirect mode
     #[arg(short, long)]
     redirect_dns: Option<bool>,
