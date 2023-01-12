@@ -2,7 +2,10 @@
 
 use std::{fmt::Display, fs::File, io::Read, path::PathBuf, str::FromStr};
 
-use anyhow::{bail, Error, Result};
+use color_eyre::{
+    eyre::{eyre, Report},
+    Result,
+};
 use directories::ProjectDirs;
 use kdl::KdlDocument;
 use tracing::debug;
@@ -47,14 +50,14 @@ impl Display for ProxyMode {
 }
 
 impl FromStr for ProxyMode {
-    type Err = Error;
+    type Err = Report;
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
         match s.to_ascii_lowercase().as_str() {
             "redirect" => Ok(Self::Redirect),
             "trace" => Ok(Self::Trace),
             "tproxy" => Ok(Self::TProxy),
-            _ => bail!("parse mode error"),
+            _ => Err(eyre!("parse mode error")),
         }
     }
 }

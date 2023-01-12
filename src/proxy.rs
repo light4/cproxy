@@ -7,12 +7,14 @@ use std::{
     time::Duration,
 };
 
+use color_eyre::Result;
+
 use crate::{
     config::{Config, ProxyMode},
     guards::{CGroupGuard, Guard, RedirectGuard, TProxyGuard, TraceGuard},
 };
 
-pub fn proxy_new_command(child_command: &[String], config: &Config) -> anyhow::Result<()> {
+pub fn proxy_new_command(child_command: &[String], config: &Config) -> Result<()> {
     let pid = std::process::id();
 
     let cgroup_guard = CGroupGuard::new(pid)?;
@@ -50,22 +52,15 @@ pub fn proxy_new_command(child_command: &[String], config: &Config) -> anyhow::R
         }
     };
 
-    let (uid, gid) = {
-        if let Ok(sudo_uid) = std::env::var("SUDO_UID") {
-            let s_uid = sudo_uid.parse::<u32>().unwrap();
-            let s_gid = std::env::var("SUDO_GID").unwrap().parse::<u32>().unwrap();
-            (s_uid, s_gid)
-        } else {
-            let o_uid = nix::unistd::getuid().as_raw();
-            let o_gid = nix::unistd::getgid().as_raw();
-            (o_uid, o_gid)
-        }
-    };
+    let original_uid = nix::unistd::getuid();
+    let original_gid = nix::unistd::getgid();
     let mut child = std::process::Command::new(&child_command[0])
-        .uid(uid)
-        .gid(gid)
+        .uid(original_uid.as_raw())
+        .gid(original_gid.as_raw())
         .args(&child_command[1..])
         .spawn()?;
+    nix::unistd::seteuid(nix::unistd::Uid::from_raw(0))?;
+    nix::unistd::setegid(nix::unistd::Gid::from_raw(0))?;
 
     ctrlc::set_handler(move || {
         println!("received ctrl-c, terminating...");
@@ -76,7 +71,7 @@ pub fn proxy_new_command(child_command: &[String], config: &Config) -> anyhow::R
     Ok(())
 }
 
-pub fn proxy_existing_pid(pid: u32, config: &Config) -> anyhow::Result<()> {
+pub fn proxy_existing_pid(pid: u32, config: &Config) -> Result<()> {
     let cgroup_guard = CGroupGuard::new(pid)?;
     let _guard: Box<dyn Guard> = match config.mode {
         ProxyMode::Redirect => {

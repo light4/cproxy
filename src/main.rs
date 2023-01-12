@@ -1,7 +1,9 @@
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
+use color_eyre::Result;
 use config::Config;
+use nix::sys::stat::Mode;
 
 mod config;
 mod guards;
@@ -39,12 +41,39 @@ enum ChildCommand {
     Command(Vec<String>),
 }
 
-fn main() -> anyhow::Result<()> {
+fn get_setuid_help() -> Result<String> {
+    let filename = std::env::args().next().unwrap();
+    let bin_path = PathBuf::from(&filename);
+    let file_stat = nix::sys::stat::lstat(&bin_path)?;
+    let file_mode = nix::sys::stat::Mode::from_bits_truncate(file_stat.st_mode.into());
+    if !file_mode.contains(Mode::S_ISUID) {
+        Ok(format!(
+            "please `sudo chown root:root {filename}` and `sudo chmod +s {filename}`"
+        ))
+    } else {
+        Ok(
+            "文件位于一个设置了 `nosuid` 选项的文件系统(用 findmnt 查看)或没有 root 权限的 NFS 文件系统中吗？"
+                .to_string(),
+        )
+    }
+}
+
+fn main() -> Result<()> {
+    color_eyre::install()?;
+
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_env("LOG_LEVEL"))
         .init();
     let args: Cli = Cli::parse();
     let config = Config::init(&args)?;
+
+    if let Err(e) = nix::unistd::seteuid(nix::unistd::Uid::from_raw(0)) {
+        let msg = get_setuid_help()?;
+        eprintln!("cproxy failed to seteuid: {msg}");
+        return Err(e.into());
+    }
+
+    nix::unistd::setegid(nix::unistd::Gid::from_raw(0))?;
 
     if let Some(pid) = args.pid {
         proxy::proxy_existing_pid(pid, &config)?;
