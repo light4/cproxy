@@ -1,0 +1,31 @@
+on: [push, pull_request]
+
+name: CI
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: -D warnings
+    steps:
+    - uses: actions/checkout@v2
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: nightly
+        override: true
+        components: rustfmt, clippy
+    - name: Run Rustfmt
+      uses: actions-rs/cargo@v1
+      with:
+        command: fmt
+        args: -- --check
+    - name: Run Clippy
+      uses: actions-rs/cargo@v1
+      with:
+        command: clippy
+    - name: Run Test
+      uses: actions-rs/cargo@v1
+      with:
+        command: test
