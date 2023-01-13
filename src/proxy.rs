@@ -27,6 +27,7 @@ pub fn proxy_new_command(child_command: &[String], config: &Config) -> Result<()
                 &output_chain,
                 cgroup_guard,
                 config.redirect_dns,
+                config.ip_stack,
             )?)
         }
         ProxyMode::TProxy => {
@@ -83,6 +84,7 @@ pub fn proxy_existing_pid(pid: u32, config: &Config) -> Result<()> {
                 &output_chain,
                 cgroup_guard,
                 !config.redirect_dns,
+                config.ip_stack,
             )?)
         }
         ProxyMode::TProxy => {

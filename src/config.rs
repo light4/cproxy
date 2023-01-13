@@ -20,6 +20,22 @@ pub enum IPStack {
     Both,
 }
 
+impl IPStack {
+    pub const fn has_v4(&self) -> bool {
+        match self {
+            Self::V4 | Self::Both => true,
+            Self::V6 => false,
+        }
+    }
+
+    pub const fn has_v6(&self) -> bool {
+        match self {
+            Self::V6 | Self::Both => true,
+            Self::V4 => false,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Config {
     /// default both(ipv4 and ipv6)
@@ -103,9 +119,9 @@ impl Config {
                     .unwrap_or("both")
             };
             match stack_str {
-                "ipv4" => IPStack::V4,
-                "ipv6" => IPStack::V6,
-                "both" => IPStack::Both,
+                "ipv4" | "v4" => IPStack::V4,
+                "ipv6" | "v6" => IPStack::V6,
+                "both" | "ipv4,ipv6" | "v4,v6" => IPStack::Both,
                 _ => IPStack::V4,
             }
         };

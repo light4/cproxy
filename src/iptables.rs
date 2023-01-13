@@ -224,6 +224,11 @@ pub struct IPTables {
 
 impl IPTables {
     #[inline]
+    pub fn set_ipv6(&mut self) {
+        self.binary = "ip6tables".to_string();
+    }
+
+    #[inline]
     pub fn is_ipv6(&self) -> bool {
         self.binary == "ip6tables"
     }

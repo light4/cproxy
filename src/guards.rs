@@ -4,6 +4,7 @@ use cgroups_rs::{cgroup_builder::CgroupBuilder, Cgroup, CgroupPid};
 use color_eyre::Result;
 
 use crate::{
+    config::IPStack,
     iproute2::{IPRoute2Builder, Object},
     iptables::{IPTablesBuider, Table},
 };
@@ -57,34 +58,42 @@ pub struct RedirectGuard {
     output_chain: String,
     cgroup_guard: CGroupGuard,
     redirect_dns: bool,
+    ip_stack: IPStack,
 }
 
 impl RedirectGuard {
-    pub fn new(
-        port: u16,
-        output_chain: &str,
-        cgroup_guard: CGroupGuard,
-        redirect_dns: bool,
-    ) -> Result<Self> {
-        tracing::debug!(
-            "creating redirect guard on port {}, with redirect_dns: {}",
-            port,
-            redirect_dns
-        );
-        let class_id = cgroup_guard.class_id;
-        let cgroup_path = cgroup_guard.cg_path.as_str();
+    // for inner use with ipv4/ipv6 but not both
+    fn _create_rules_with_ip_stack(&self, ip_stack: IPStack) -> Result<()> {
+        let stack_str = match ip_stack {
+            IPStack::V4 => "ipv4",
+            IPStack::V6 => "ipv6",
+            _ => unreachable!(),
+        };
 
-        let nat = IPTablesBuider::new(Table::Nat)
+        let port = self.port;
+        let output_chain = &self.output_chain;
+        let redirect_dns = self.redirect_dns;
+        let class_id = self.cgroup_guard.class_id;
+        let cgroup_path = self.cgroup_guard.cg_path.as_str();
+
+        tracing::debug!(
+            "creating {stack_str} redirect guard on port {port}, with redirect_dns: {redirect_dns}",
+        );
+
+        let mut nat = IPTablesBuider::new(Table::Nat)
             .cmd_uid(0)
             .cmd_gid(0)
             .build()?;
+        if matches!(ip_stack, IPStack::V6) {
+            nat.set_ipv6();
+        }
 
         nat.new_chain(output_chain)?;
         nat.append("OUTPUT", &format!("-j {output_chain}"))?;
         nat.append(output_chain, "-p udp -o lo -j RETURN")?;
         nat.append(output_chain, "-p tcp -o lo -j RETURN")?;
 
-        if cgroup_guard.hier_v2 {
+        if self.cgroup_guard.hier_v2 {
             nat.append(
                 output_chain,
                 &format!("-p tcp -m cgroup --path {cgroup_path} -j REDIRECT --to-ports {port}"),
@@ -110,30 +119,80 @@ impl RedirectGuard {
             }
         }
 
-        Ok(Self {
+        Ok(())
+    }
+
+    pub fn create_v4_rules(&self) -> Result<()> {
+        self._create_rules_with_ip_stack(IPStack::V4)
+    }
+
+    pub fn create_v6_rules(&self) -> Result<()> {
+        self._create_rules_with_ip_stack(IPStack::V6)
+    }
+
+    pub fn new(
+        port: u16,
+        output_chain: &str,
+        cgroup_guard: CGroupGuard,
+        redirect_dns: bool,
+        ip_stack: IPStack,
+    ) -> Result<Self> {
+        let guard = Self {
             port,
             output_chain: output_chain.to_owned(),
             cgroup_guard,
             redirect_dns,
-        })
+            ip_stack,
+        };
+
+        if ip_stack.has_v4() {
+            guard.create_v4_rules()?;
+        }
+        if ip_stack.has_v6() {
+            guard.create_v6_rules()?;
+        }
+
+        Ok(guard)
+    }
+
+    pub fn drop_v4_rules(&self) -> Result<()> {
+        self._drop_rules_with_ip_stack(IPStack::V4)
+    }
+
+    pub fn drop_v6_rules(&self) -> Result<()> {
+        self._drop_rules_with_ip_stack(IPStack::V6)
+    }
+
+    // for inner use with ipv4/ipv6 but not both
+    fn _drop_rules_with_ip_stack(&self, ip_stack: IPStack) -> Result<()> {
+        let output_chain = &self.output_chain;
+
+        let mut nat = IPTablesBuider::new(Table::Nat)
+            .cmd_uid(0)
+            .cmd_gid(0)
+            .build()?;
+        if matches!(ip_stack, IPStack::V6) {
+            nat.set_ipv6();
+        }
+        nat.delete("OUTPUT", &format!("-j {output_chain}"))?;
+        nat.flush_chain(output_chain)?;
+        nat.delete_chain(output_chain)?;
+
+        Ok(())
     }
 }
 
 impl Drop for RedirectGuard {
     fn drop(&mut self) {
-        let output_chain = &self.output_chain;
+        if self.ip_stack.has_v4() {
+            let msg = "redirect drop ipv4 iptables and cgroup failed";
+            self.drop_v4_rules().expect(msg);
+        }
 
-        let nat = IPTablesBuider::new(Table::Nat)
-            .cmd_uid(0)
-            .cmd_gid(0)
-            .build()
-            .expect("init iptables error");
-
-        let msg = "drop iptables and cgroup failed";
-        nat.delete("OUTPUT", &format!("-j {output_chain}"))
-            .expect(msg);
-        nat.flush_chain(output_chain).expect(msg);
-        nat.delete_chain(output_chain).expect(msg);
+        if self.ip_stack.has_v6() {
+            let msg = "redirect drop ipv6 iptables and cgroup failed";
+            self.drop_v6_rules().expect(msg);
+        }
     }
 }
 
