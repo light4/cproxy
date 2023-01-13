@@ -12,6 +12,8 @@ mod iproute2;
 mod iptables;
 mod proxy;
 
+pub const PKG_NAME: &str = env!("CARGO_PKG_NAME");
+
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 pub struct Cli {

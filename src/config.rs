@@ -10,9 +10,7 @@ use directories::ProjectDirs;
 use kdl::KdlDocument;
 use tracing::debug;
 
-use crate::Cli;
-
-const PKG_NAME: &str = env!("CARGO_PKG_NAME");
+use crate::{Cli, PKG_NAME};
 
 #[derive(Debug, Clone, Copy)]
 #[non_exhaustive]
@@ -39,6 +37,8 @@ pub struct Config {
     pub mode: ProxyMode,
     /// Override dns server address. This option only works with tproxy mode
     pub override_dns: Option<String>,
+    /// iptables_prefix
+    pub iptables_prefix: String,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -130,6 +130,12 @@ impl Config {
             None
         };
 
+        let iptables_prefix = doc
+            .get_arg("iptables_prefix")
+            .map(|i| i.as_string().unwrap())
+            .unwrap_or(PKG_NAME)
+            .to_string();
+
         let r = Self {
             ip_stack,
             path: config_path,
@@ -146,6 +152,7 @@ impl Config {
             }),
             mode,
             override_dns,
+            iptables_prefix,
         };
 
         debug!("CProxy config: {r:#?}");

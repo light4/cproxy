@@ -15,38 +15,39 @@ use crate::{
 };
 
 pub fn proxy_new_command(child_command: &[String], config: &Config) -> Result<()> {
+    let prefix = &config.iptables_prefix;
     let pid = std::process::id();
 
     let cgroup_guard = CGroupGuard::new(pid)?;
     let _guard: Box<dyn Guard> = match config.mode {
         ProxyMode::Redirect => {
-            let output_chain_name = format!("nozomi_redirect_out_{pid}");
+            let output_chain = format!("{prefix}_redirect_out_{pid}");
             Box::new(RedirectGuard::new(
                 config.port,
-                output_chain_name.as_str(),
+                &output_chain,
                 cgroup_guard,
                 config.redirect_dns,
             )?)
         }
         ProxyMode::TProxy => {
-            let output_chain_name = format!("nozomi_tproxy_out_{pid}");
-            let prerouting_chain_name = format!("nozomi_tproxy_pre_{pid}");
+            let output_chain = format!("{prefix}_tproxy_out_{pid}");
+            let prerouting_chain = format!("{prefix}_tproxy_pre_{pid}");
             let mark = pid;
             Box::new(TProxyGuard::new(
                 config.port,
                 mark,
-                output_chain_name.as_str(),
-                prerouting_chain_name.as_str(),
+                &output_chain,
+                &prerouting_chain,
                 cgroup_guard,
                 config.override_dns.clone(),
             )?)
         }
         ProxyMode::Trace => {
-            let prerouting_chain_name = format!("nozomi_trace_pre_{pid}");
-            let output_chain_name = format!("nozomi_trace_out_{pid}");
+            let prerouting_chain = format!("{prefix}_trace_pre_{pid}");
+            let output_chain = format!("{prefix}_trace_out_{pid}");
             Box::new(TraceGuard::new(
-                output_chain_name.as_str(),
-                prerouting_chain_name.as_str(),
+                &output_chain,
+                &prerouting_chain,
                 cgroup_guard,
             )?)
         }
@@ -72,36 +73,37 @@ pub fn proxy_new_command(child_command: &[String], config: &Config) -> Result<()
 }
 
 pub fn proxy_existing_pid(pid: u32, config: &Config) -> Result<()> {
+    let prefix = &config.iptables_prefix;
     let cgroup_guard = CGroupGuard::new(pid)?;
     let _guard: Box<dyn Guard> = match config.mode {
         ProxyMode::Redirect => {
-            let output_chain_name = format!("nozomi_redirect_out_{pid}");
+            let output_chain = format!("{prefix}_redirect_out_{pid}");
             Box::new(RedirectGuard::new(
                 config.port,
-                output_chain_name.as_str(),
+                &output_chain,
                 cgroup_guard,
                 !config.redirect_dns,
             )?)
         }
         ProxyMode::TProxy => {
-            let output_chain_name = format!("nozomi_tproxy_out_{pid}");
-            let prerouting_chain_name = format!("nozomi_tproxy_pre_{pid}");
+            let output_chain = format!("{prefix}_tproxy_out_{pid}");
+            let prerouting_chain = format!("{prefix}_tproxy_pre_{pid}");
             let mark = pid;
             Box::new(TProxyGuard::new(
                 config.port,
                 mark,
-                output_chain_name.as_str(),
-                prerouting_chain_name.as_str(),
+                &output_chain,
+                &prerouting_chain,
                 cgroup_guard,
                 config.override_dns.clone(),
             )?)
         }
         ProxyMode::Trace => {
-            let prerouting_chain_name = format!("nozomi_trace_pre_{pid}");
-            let output_chain_name = format!("nozomi_trace_out_{pid}");
+            let prerouting_chain = format!("{prefix}_trace_pre_{pid}");
+            let output_chain = format!("{prefix}_trace_out_{pid}");
             Box::new(TraceGuard::new(
-                output_chain_name.as_str(),
-                prerouting_chain_name.as_str(),
+                &output_chain,
+                &prerouting_chain,
                 cgroup_guard,
             )?)
         }
