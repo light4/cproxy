@@ -328,6 +328,7 @@ impl TProxyGuard {
         mangle.append("OUTPUT", &format!("-j {output_chain}"))?;
         mangle.append(output_chain, "-p tcp -o lo -j RETURN")?;
         mangle.append(output_chain, "-p udp -o lo -j RETURN")?;
+        mangle.append(output_chain, "-j RETURN -m mark --mark 0xff")?;
 
         let nat = IPTablesBuider::new(Table::Nat)
             .cmd_uid(0)
