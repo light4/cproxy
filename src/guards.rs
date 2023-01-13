@@ -5,7 +5,7 @@ use color_eyre::Result;
 
 use crate::{
     config::IPStack,
-    iproute2::{IPRoute2Builder, Object},
+    iproute2::{Action, IPRoute2, IPRoute2Builder, Object},
     iptables::{IPTablesBuider, Table},
 };
 
@@ -201,6 +201,7 @@ pub struct IpRuleGuardInner {
     table: u32,
     guard_thread: std::thread::JoinHandle<()>,
     stop_channel: flume::Sender<()>,
+    ip_stack: IPStack,
 }
 
 #[allow(unused)]
@@ -209,7 +210,21 @@ pub struct IpRuleGuard {
 }
 
 impl IpRuleGuard {
-    pub fn new(fwmark: u32, table: u32) -> Self {
+    pub fn new(fwmark: u32, table: u32, ip_stack: IPStack) -> Self {
+        fn update_local_ip_table(ip_cmd: IPRoute2, action: Action, table: &str, ip_stack: IPStack) {
+            let local_ip = match ip_stack {
+                IPStack::V4 => "0.0.0.0/0",
+                IPStack::V6 => "::/0",
+                _ => unreachable!(),
+            };
+
+            ip_cmd
+                .object(Object::route)
+                .action(action)
+                .run(["local", local_ip, "dev", "lo", "table", table])
+                .expect("ip {action} route failed");
+        }
+
         let (sender, receiver) = flume::unbounded();
         let thread = std::thread::spawn(move || {
             let fwmark = fwmark.to_string();
@@ -220,11 +235,13 @@ impl IpRuleGuard {
                 .add()
                 .run(["fwmark", &fwmark, "table", &table])
                 .expect("ip add rule failed");
-            ip_cmd
-                .object(Object::route)
-                .add()
-                .run(["local", "0.0.0.0/0", "dev", "lo", "table", &table])
-                .expect("ip add route failed");
+            if ip_stack.has_v4() {
+                update_local_ip_table(ip_cmd, Action::Add, &table, IPStack::V4);
+            }
+            if ip_stack.has_v6() {
+                update_local_ip_table(ip_cmd, Action::Add, &table, IPStack::V6);
+            }
+
             loop {
                 if ip_cmd
                     .object(Object::rule)
@@ -253,6 +270,7 @@ impl IpRuleGuard {
             table,
             guard_thread: thread,
             stop_channel: sender,
+            ip_stack,
         };
         let inner = with_drop::with_drop(inner, |x| {
             x.stop_channel.send(()).unwrap();
@@ -265,11 +283,12 @@ impl IpRuleGuard {
                 .delete()
                 .run(["fwmark", &mark, "table", &table])
                 .expect("ip drop routing rules failed");
-            ip_cmd
-                .object(Object::route)
-                .delete()
-                .run(["local", "0.0.0.0/0", "dev", "lo", "table", &table])
-                .expect("ip delete routing rules failed");
+            if x.ip_stack.has_v4() {
+                update_local_ip_table(ip_cmd, Action::Delete, &table, IPStack::V4);
+            }
+            if x.ip_stack.has_v6() {
+                update_local_ip_table(ip_cmd, Action::Delete, &table, IPStack::V6);
+            }
         });
         Self {
             inner: Box::new(inner),
@@ -286,30 +305,36 @@ pub struct TProxyGuard {
     iprule_guard: IpRuleGuard,
     cgroup_guard: CGroupGuard,
     override_dns: Option<String>,
+    ip_stack: IPStack,
 }
 
 impl TProxyGuard {
-    pub fn new(
-        port: u16,
-        mark: u32,
-        output_chain: &str,
-        prerouting_chain: &str,
-        cgroup_guard: CGroupGuard,
-        override_dns: Option<String>,
-    ) -> Result<Self> {
-        let class_id = cgroup_guard.class_id;
-        let cg_path = cgroup_guard.cg_path.as_str();
-        tracing::debug!(
-            "creating tproxy guard on port {}, with override_dns: {:?}",
-            port,
-            override_dns
-        );
-        let iprule_guard = IpRuleGuard::new(mark, mark);
+    // for inner use with ipv4/ipv6 but not both
+    fn _create_rules_with_ip_stack(&self, ip_stack: IPStack) -> Result<()> {
+        let port = self.port;
+        let override_dns = self.override_dns.clone();
+        let class_id = self.cgroup_guard.class_id;
+        let cg_path = self.cgroup_guard.cg_path.as_str();
+        let mark = self.mark;
+        let prerouting_chain = &self.prerouting_chain;
+        let output_chain = &self.output_chain;
 
-        let mangle = IPTablesBuider::new(Table::Mangle)
+        tracing::debug!(
+            "creating tproxy guard on port {port}, with override_dns: {override_dns:?}",
+        );
+
+        let mut mangle = IPTablesBuider::new(Table::Mangle)
             .cmd_uid(0)
             .cmd_gid(0)
             .build()?;
+        if matches!(ip_stack, IPStack::V6) {
+            mangle.set_ipv6();
+        }
+        let redir_ip = match ip_stack {
+            IPStack::V4 => "127.0.0.1",
+            IPStack::V6 => "::1",
+            _ => unreachable!(),
+        };
 
         mangle.new_chain(prerouting_chain)?;
         mangle.append("PREROUTING", &format!("-j {prerouting_chain}"))?;
@@ -317,11 +342,11 @@ impl TProxyGuard {
         mangle.append(prerouting_chain, "-p udp -o lo -j RETURN")?;
         mangle.append(
             prerouting_chain,
-            &format!("-p udp -m mark --mark {mark} -j TPROXY --on-ip 127.0.0.1 --on-port {port}"),
+            &format!("-p udp -m mark --mark {mark} -j TPROXY --on-ip {redir_ip} --on-port {port}"),
         )?;
         mangle.append(
             prerouting_chain,
-            &format!("-p tcp -m mark --mark {mark} -j TPROXY --on-ip 127.0.0.1 --on-port {port}"),
+            &format!("-p tcp -m mark --mark {mark} -j TPROXY --on-ip {redir_ip} --on-port {port}"),
         )?;
 
         mangle.new_chain(output_chain)?;
@@ -340,7 +365,7 @@ impl TProxyGuard {
             nat.append(output_chain, "-p udp -o lo -j RETURN")?;
         }
 
-        if cgroup_guard.hier_v2 {
+        if self.cgroup_guard.hier_v2 {
             mangle.append(
                 output_chain,
                 &format!("-p tcp -m cgroup --path {cg_path} -j MARK --set-mark {mark}"),
@@ -366,7 +391,28 @@ impl TProxyGuard {
             }
         }
 
-        Ok(Self {
+        Ok(())
+    }
+
+    pub fn create_v4_rules(&self) -> Result<()> {
+        self._create_rules_with_ip_stack(IPStack::V4)
+    }
+
+    pub fn create_v6_rules(&self) -> Result<()> {
+        self._create_rules_with_ip_stack(IPStack::V6)
+    }
+
+    pub fn new(
+        port: u16,
+        mark: u32,
+        output_chain: &str,
+        prerouting_chain: &str,
+        cgroup_guard: CGroupGuard,
+        override_dns: Option<String>,
+        ip_stack: IPStack,
+    ) -> Result<Self> {
+        let iprule_guard = IpRuleGuard::new(mark, mark, ip_stack);
+        let guard = Self {
             port,
             mark,
             output_chain: output_chain.to_owned(),
@@ -374,22 +420,41 @@ impl TProxyGuard {
             iprule_guard,
             cgroup_guard,
             override_dns,
-        })
-    }
-}
+            ip_stack,
+        };
+        if ip_stack.has_v4() {
+            guard.create_v4_rules()?;
+        }
+        if ip_stack.has_v6() {
+            guard.create_v6_rules()?;
+        }
 
-impl Drop for TProxyGuard {
-    fn drop(&mut self) {
+        Ok(guard)
+    }
+
+    pub fn drop_v4_rules(&self) -> Result<()> {
+        self._drop_rules_with_ip_stack(IPStack::V4)
+    }
+
+    pub fn drop_v6_rules(&self) -> Result<()> {
+        self._drop_rules_with_ip_stack(IPStack::V6)
+    }
+
+    // for inner use with ipv4/ipv6 but not both
+    fn _drop_rules_with_ip_stack(&self, ip_stack: IPStack) -> Result<()> {
         let output_chain = &self.output_chain;
         let prerouting_chain = &self.prerouting_chain;
 
         std::thread::sleep(Duration::from_millis(100));
 
-        let mangle = IPTablesBuider::new(Table::Mangle)
+        let mut mangle = IPTablesBuider::new(Table::Mangle)
             .cmd_uid(0)
             .cmd_gid(0)
             .build()
             .expect("init iptables error");
+        if matches!(ip_stack, IPStack::V6) {
+            mangle.set_ipv6();
+        }
 
         let msg = "drop iptables and cgroup failed";
         mangle
@@ -405,17 +470,35 @@ impl Drop for TProxyGuard {
         mangle.delete_chain(output_chain).expect(msg);
 
         if self.override_dns.is_some() {
-            let nat = IPTablesBuider::new(Table::Nat)
+            let mut nat = IPTablesBuider::new(Table::Nat)
                 .cmd_uid(0)
                 .cmd_gid(0)
                 .build()
                 .expect("init iptables error");
+            if matches!(ip_stack, IPStack::V6) {
+                nat.set_ipv6();
+            }
 
             let msg = format!("drop iptables nat: {output_chain}");
             nat.delete("OUTPUT", &format!("-j {output_chain}"))
                 .expect(&msg);
             nat.flush_chain(output_chain).expect(&msg);
             nat.delete_chain(output_chain).expect(&msg);
+        }
+        Ok(())
+    }
+}
+
+impl Drop for TProxyGuard {
+    fn drop(&mut self) {
+        if self.ip_stack.has_v4() {
+            let msg = "redirect drop ipv4 iptables and cgroup failed";
+            self.drop_v4_rules().expect(msg);
+        }
+
+        if self.ip_stack.has_v6() {
+            let msg = "redirect drop ipv6 iptables and cgroup failed";
+            self.drop_v6_rules().expect(msg);
         }
     }
 }
