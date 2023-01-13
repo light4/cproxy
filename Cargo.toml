@@ -20,11 +20,12 @@ kdl = "4.6"
 lazy-regex = "2.4"
 nix = { version = "0.26", default-features = false, features = ["fs", "user"] }
 semver = "1.0"
+strum = "0.24"
+strum_macros = "0.24"
 thiserror = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 with_drop = "0.0.3"
-xshell = "0.2"
 
 [profile.dev.package.backtrace]
 opt-level = 3

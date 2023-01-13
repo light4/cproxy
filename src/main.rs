@@ -8,6 +8,7 @@ use nix::sys::stat::Mode;
 mod config;
 mod errors;
 mod guards;
+mod iproute2;
 mod iptables;
 mod proxy;
 

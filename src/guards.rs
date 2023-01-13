@@ -2,9 +2,11 @@ use std::time::Duration;
 
 use cgroups_rs::{cgroup_builder::CgroupBuilder, Cgroup, CgroupPid};
 use color_eyre::Result;
-use xshell::{cmd, Shell};
 
-use crate::iptables::{IPTablesBuider, Table};
+use crate::{
+    iproute2::{IPRoute2Builder, Object},
+    iptables::{IPTablesBuider, Table},
+};
 
 pub trait Guard {}
 impl<T> Guard for T {}
@@ -151,30 +153,36 @@ impl IpRuleGuard {
     pub fn new(fwmark: u32, table: u32) -> Self {
         let (sender, receiver) = flume::unbounded();
         let thread = std::thread::spawn(move || {
-            let sh = Shell::new().expect("init shell error");
             let fwmark = fwmark.to_string();
             let table = table.to_string();
-            cmd!(sh, "ip rule add fwmark {fwmark} table {table}")
-                .quiet()
-                .run()
-                .expect("set routing rules failed");
-            cmd!(sh, "ip route add local 0.0.0.0/0 dev lo table {table}")
-                .quiet()
-                .run()
-                .expect("set routing rules failed");
+            let ip_cmd = IPRoute2Builder::new().cmd_uid(0).cmd_gid(0).build();
+            ip_cmd
+                .object(Object::rule)
+                .add()
+                .run(["fwmark", &fwmark, "table", &table])
+                .expect("ip add rule failed");
+            ip_cmd
+                .object(Object::route)
+                .add()
+                .run(["local", "0.0.0.0/0", "dev", "lo", "table", &table])
+                .expect("ip add route failed");
             loop {
-                if cmd!(sh, "ip rule list fwmark {fwmark}")
-                    .read()
-                    .unwrap()
+                if ip_cmd
+                    .object(Object::rule)
+                    .list()
+                    .run(["fwmark", &fwmark])
+                    .expect("ip list rule failed")
+                    .stdout
                     .is_empty()
                 {
                     tracing::warn!(
                         "detected disappearing routing policy, possibly due to interruped network, resetting"
                     );
-                    cmd!(sh, "ip rule add fwmark {fwmark} table {table}")
-                        .quiet()
-                        .run()
-                        .expect("set routing rules failed");
+                    ip_cmd
+                        .object(Object::rule)
+                        .add()
+                        .run(["fwmark", &fwmark, "table", &table])
+                        .expect("ip add routing rules failed");
                 }
                 if receiver.recv_timeout(Duration::from_secs(1)).is_ok() {
                     break;
@@ -190,17 +198,19 @@ impl IpRuleGuard {
         let inner = with_drop::with_drop(inner, |x| {
             x.stop_channel.send(()).unwrap();
             x.guard_thread.join().unwrap();
-            let sh = Shell::new().expect("init shell error");
             let mark = x.fwmark.to_string();
             let table = x.table.to_string();
-            cmd!(sh, "ip rule delete fwmark {mark} table {table}")
-                .quiet()
-                .run()
-                .expect("drop routing rules failed");
-            cmd!(sh, "ip route delete local 0.0.0.0/0 dev lo table {table}")
-                .quiet()
-                .run()
-                .expect("drop routing rules failed");
+            let ip_cmd = IPRoute2Builder::new().cmd_uid(0).cmd_gid(0).build();
+            ip_cmd
+                .object(Object::rule)
+                .delete()
+                .run(["fwmark", &mark, "table", &table])
+                .expect("ip drop routing rules failed");
+            ip_cmd
+                .object(Object::route)
+                .delete()
+                .run(["local", "0.0.0.0/0", "dev", "lo", "table", &table])
+                .expect("ip delete routing rules failed");
         });
         Self {
             inner: Box::new(inner),

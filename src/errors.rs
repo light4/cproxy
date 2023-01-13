@@ -40,3 +40,22 @@ impl From<String> for IptablesError {
         Self::Other(s)
     }
 }
+
+#[derive(Error, Debug)]
+pub enum IPRoute2Error {
+    #[error("io error")]
+    Io(#[from] io::Error),
+    #[error("run command error: code {code} msg {msg}")]
+    Command { code: i32, msg: String },
+    #[error("init command error: {0}")]
+    BuildCommand(String),
+}
+
+impl From<Output> for IPRoute2Error {
+    fn from(output: Output) -> Self {
+        Self::Command {
+            code: output.status.code().unwrap_or(-1),
+            msg: String::from_utf8_lossy(output.stderr.as_slice()).into(),
+        }
+    }
+}
