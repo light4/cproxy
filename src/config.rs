@@ -8,7 +8,6 @@ use color_eyre::{
 };
 use directories::ProjectDirs;
 use kdl::KdlDocument;
-use tracing::debug;
 
 use crate::{Cli, PKG_NAME};
 
@@ -171,7 +170,7 @@ impl Config {
             iptables_prefix,
         };
 
-        debug!("CProxy config: {r:#?}");
+        tracing::info!("CProxy config: {r:#?}");
         Ok(r)
     }
 }

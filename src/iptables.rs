@@ -30,7 +30,7 @@ use lazy_regex::regex;
 use nix::fcntl::{flock, FlockArg};
 use semver::Version;
 
-use crate::errors::IptablesError;
+use crate::{errors::IptablesError, utils::command_to_string};
 
 // List of built-in chains taken from: man 8 iptables
 const BUILTIN_CHAINS_FILTER: &[&str] = &["INPUT", "FORWARD", "OUTPUT"];
@@ -479,7 +479,9 @@ impl IPTables {
         let output;
 
         if self.has_wait {
-            output = cmd.arg("--wait").output()?;
+            cmd.arg("--wait");
+            tracing::debug!("$ {}", &command_to_string(cmd));
+            output = cmd.output()?;
         } else {
             file_lock = Some(File::create("/var/run/xtables_old.lock")?);
 
@@ -499,6 +501,7 @@ impl IPTables {
                     }
                 }
             }
+            tracing::debug!("$ {}", &command_to_string(cmd));
             output = cmd.output()?;
         }
 

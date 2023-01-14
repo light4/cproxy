@@ -11,6 +11,7 @@ mod guards;
 mod iproute2;
 mod iptables;
 mod proxy;
+mod utils;
 
 pub const PKG_NAME: &str = env!("CARGO_PKG_NAME");
 

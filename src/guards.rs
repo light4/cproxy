@@ -264,7 +264,7 @@ impl IpRuleGuard {
                         update_fwmark(&ipv6_cmd, Action::Add, &fwmark, &table);
                     }
                 }
-                if receiver.recv_timeout(Duration::from_secs(1)).is_ok() {
+                if receiver.recv_timeout(Duration::from_millis(500)).is_ok() {
                     break;
                 }
             }

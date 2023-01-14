@@ -8,7 +8,7 @@ use std::{
 
 use strum_macros::{EnumString, IntoStaticStr};
 
-use crate::errors::IPRoute2Error;
+use crate::{errors::IPRoute2Error, utils::command_to_string};
 
 pub type Result<T, E = IPRoute2Error> = core::result::Result<T, E>;
 
@@ -231,11 +231,11 @@ impl IPRoute2 {
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
     {
-        let output = self
-            .command()?
-            .args(args)
-            .output()
-            .expect("run ip command error");
+        let mut cmd = self.command()?;
+        cmd.args(args);
+
+        tracing::debug!("$ {}", &command_to_string(&cmd));
+        let output = cmd.output()?;
         if !output.status.success() {
             return Err(IPRoute2Error::from(output));
         }
