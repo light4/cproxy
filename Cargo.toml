@@ -11,7 +11,7 @@ edition = "2021"
 
 [dependencies]
 cgroups-rs = "0.3"
-clap = { version = "4.0", features = ["derive"] }
+clap = { version = "4.1", features = ["derive"] }
 color-eyre = "0.6"
 ctrlc = "3.2"
 directories = "4.0"
