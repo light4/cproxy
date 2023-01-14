@@ -14,7 +14,8 @@ pub type Result<T, E = IPRoute2Error> = core::result::Result<T, E>;
 
 #[derive(Debug, Clone, Copy)]
 pub struct IPRoute2 {
-    binary: &'static str,
+    pub binary: &'static str,
+    pub ipv6: bool,
     object: Option<Object>,
     action: Option<Action>,
     cmd_uid: Option<u32>,
@@ -80,6 +81,7 @@ impl Action {
 #[derive(Debug, Default, Clone)]
 pub struct IPRoute2Builder {
     binary: &'static str,
+    ipv6: bool,
     object: Option<Object>,
     action: Option<Action>,
     cmd_uid: Option<u32>,
@@ -90,10 +92,18 @@ impl IPRoute2Builder {
     pub fn new() -> Self {
         Self {
             binary: "ip",
+            ipv6: false,
+            object: None,
+            action: None,
             cmd_uid: None,
             cmd_gid: None,
-            ..Default::default()
         }
+    }
+
+    #[inline]
+    pub fn ipv6(mut self) -> Self {
+        self.ipv6 = true;
+        self
     }
 
     #[inline]
@@ -141,6 +151,7 @@ impl IPRoute2Builder {
     pub fn build(&self) -> IPRoute2 {
         IPRoute2 {
             binary: self.binary,
+            ipv6: self.ipv6,
             object: self.object,
             action: self.action,
             cmd_uid: self.cmd_uid,
@@ -150,6 +161,12 @@ impl IPRoute2Builder {
 }
 
 impl IPRoute2 {
+    #[inline]
+    pub fn set_ipv6(mut self) -> Self {
+        self.ipv6 = true;
+        self
+    }
+
     #[inline]
     pub fn object(mut self, object: Object) -> Self {
         self.object = Some(object);
@@ -183,6 +200,9 @@ impl IPRoute2 {
     #[inline]
     pub fn command(&self) -> Result<Command> {
         let mut cmd = Command::new(self.binary);
+        if self.ipv6 {
+            cmd.arg("-6");
+        }
         let object: &'static str = self
             .object
             .ok_or(IPRoute2Error::BuildCommand(

@@ -212,13 +212,19 @@ pub struct IpRuleGuard {
 
 impl IpRuleGuard {
     pub fn new(fwmark: u32, table: u32, ip_stack: IPStack) -> Self {
-        fn update_local_ip_table(ip_cmd: IPRoute2, action: Action, table: &str, ip_stack: IPStack) {
-            let local_ip = match ip_stack {
-                IPStack::V4 => "0.0.0.0/0",
-                IPStack::V6 => "::/0",
-                _ => unreachable!(),
-            };
+        let ipv4_cmd = IPRoute2Builder::new().cmd_uid(0).cmd_gid(0).build();
+        let ipv6_cmd = IPRoute2Builder::new().ipv6().cmd_uid(0).cmd_gid(0).build();
 
+        fn update_fwmark(ip_cmd: &IPRoute2, action: Action, fwmark: &str, table: &str) {
+            ip_cmd
+                .object(Object::rule)
+                .action(action)
+                .run(["fwmark", fwmark, "table", table])
+                .expect("ip {action} rule failed");
+        }
+
+        fn update_local_ip_table(ip_cmd: &IPRoute2, action: Action, table: &str) {
+            let local_ip = if ip_cmd.ipv6 { "::/0" } else { "0.0.0.0/0" };
             ip_cmd
                 .object(Object::route)
                 .action(action)
@@ -230,21 +236,17 @@ impl IpRuleGuard {
         let thread = std::thread::spawn(move || {
             let fwmark = fwmark.to_string();
             let table = table.to_string();
-            let ip_cmd = IPRoute2Builder::new().cmd_uid(0).cmd_gid(0).build();
-            ip_cmd
-                .object(Object::rule)
-                .add()
-                .run(["fwmark", &fwmark, "table", &table])
-                .expect("ip add rule failed");
             if ip_stack.has_v4() {
-                update_local_ip_table(ip_cmd, Action::Add, &table, IPStack::V4);
+                update_fwmark(&ipv4_cmd, Action::Add, &fwmark, &table);
+                update_local_ip_table(&ipv4_cmd, Action::Add, &table);
             }
             if ip_stack.has_v6() {
-                update_local_ip_table(ip_cmd, Action::Add, &table, IPStack::V6);
+                update_fwmark(&ipv6_cmd, Action::Add, &fwmark, &table);
+                update_local_ip_table(&ipv6_cmd, Action::Add, &table);
             }
 
             loop {
-                if ip_cmd
+                if ipv4_cmd
                     .object(Object::rule)
                     .list()
                     .run(["fwmark", &fwmark])
@@ -255,11 +257,12 @@ impl IpRuleGuard {
                     tracing::warn!(
                         "detected disappearing routing policy, possibly due to interruped network, resetting"
                     );
-                    ip_cmd
-                        .object(Object::rule)
-                        .add()
-                        .run(["fwmark", &fwmark, "table", &table])
-                        .expect("ip add routing rules failed");
+                    if ip_stack.has_v4() {
+                        update_fwmark(&ipv4_cmd, Action::Add, &fwmark, &table);
+                    }
+                    if ip_stack.has_v6() {
+                        update_fwmark(&ipv6_cmd, Action::Add, &fwmark, &table);
+                    }
                 }
                 if receiver.recv_timeout(Duration::from_secs(1)).is_ok() {
                     break;
@@ -278,17 +281,15 @@ impl IpRuleGuard {
             x.guard_thread.join().unwrap();
             let mark = x.fwmark.to_string();
             let table = x.table.to_string();
-            let ip_cmd = IPRoute2Builder::new().cmd_uid(0).cmd_gid(0).build();
-            ip_cmd
-                .object(Object::rule)
-                .delete()
-                .run(["fwmark", &mark, "table", &table])
-                .expect("ip drop routing rules failed");
             if x.ip_stack.has_v4() {
-                update_local_ip_table(ip_cmd, Action::Delete, &table, IPStack::V4);
+                let ipv4_cmd = IPRoute2Builder::new().cmd_uid(0).cmd_gid(0).build();
+                update_fwmark(&ipv4_cmd, Action::Delete, &mark, &table);
+                update_local_ip_table(&ipv4_cmd, Action::Delete, &table);
             }
             if x.ip_stack.has_v6() {
-                update_local_ip_table(ip_cmd, Action::Delete, &table, IPStack::V6);
+                let ipv6_cmd = IPRoute2Builder::new().ipv6().cmd_uid(0).cmd_gid(0).build();
+                update_fwmark(&ipv6_cmd, Action::Delete, &mark, &table);
+                update_local_ip_table(&ipv6_cmd, Action::Delete, &table);
             }
         });
         Self {
