@@ -47,8 +47,9 @@ impl Drop for CGroupGuard {
     fn drop(&mut self) {
         self.cg
             .remove_task_by_tgid(CgroupPid::from(self.pid as u64))
-            .unwrap_or_else(|e| eprintln!("remove task error: {e:?}"));
-        self.cg.delete().unwrap();
+            .expect("remove task error {self.pid}");
+        std::thread::sleep(Duration::from_millis(50));
+        self.cg.delete().expect("delete cgroup error");
     }
 }
 
