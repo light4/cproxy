@@ -11,10 +11,10 @@ edition = "2021"
 
 [dependencies]
 cgroups-rs = "0.3"
-clap = { version = "4.1", features = ["derive"] }
+clap = { version = "4.2", features = ["derive"] }
 color-eyre = "0.6"
 ctrlc = "3.2"
-directories = "4.0"
+directories = "5.0"
 flume = { version = "0.10", default-features = false }
 kdl = "4.6"
 lazy-regex = "2.4"
