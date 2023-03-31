@@ -1,6 +1,6 @@
 [package]
 name = "cproxy"
-version = "4.3.1"
+version = "4.3.2"
 authors = ["Xiangru Lian <admin@mail.xrlian.com>", "Light Ning <root@i01.io>"]
 description = "Transparent proxy built on cgroup net_cls."
 homepage = "https://github.com/light4/cproxy"
