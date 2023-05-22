@@ -1,6 +1,6 @@
 [package]
 name = "cproxy"
-version = "4.3.3"
+version = "4.3.4"
 authors = ["Xiangru Lian <admin@mail.xrlian.com>", "Light Ning <root@i01.io>"]
 description = "Transparent proxy built on cgroup net_cls."
 homepage = "https://github.com/light4/cproxy"
@@ -11,7 +11,7 @@ edition = "2021"
 
 [dependencies]
 cgroups-rs = "0.3"
-clap = { version = "4.2", features = ["derive"] }
+clap = { version = "4.3", features = ["derive"] }
 color-eyre = "0.6"
 ctrlc = "3.2"
 directories = "5.0"
