@@ -11,17 +11,17 @@ edition = "2021"
 
 [dependencies]
 cgroups-rs = "0.3"
-clap = { version = "4.3", features = ["derive"] }
+clap = { version = "4.4", features = ["derive"] }
 color-eyre = "0.6"
-ctrlc = "3.2"
+ctrlc = "3.4"
 directories = "5.0"
-flume = { version = "0.10", default-features = false }
+flume = { version = "0.11", default-features = false }
 kdl = "4.6"
-lazy-regex = "2.5"
-nix = { version = "0.26", default-features = false, features = ["fs", "user"] }
+lazy-regex = "3.0"
+nix = { version = "0.27", default-features = false, features = ["fs", "user"] }
 semver = "1.0"
-strum = "0.24"
-strum_macros = "0.24"
+strum = "0.25"
+strum_macros = "0.25"
 thiserror = "1.0"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
