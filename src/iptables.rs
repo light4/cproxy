@@ -492,7 +492,7 @@ impl IPTables {
                     FlockArg::LockExclusiveNonblock,
                 ) {
                     Ok(_) => need_retry = false,
-                    Err(e) if e == nix::errno::Errno::EAGAIN => {
+                    Err(nix::errno::Errno::EAGAIN) => {
                         // FIXME: may cause infinite loop
                         need_retry = true;
                     }
